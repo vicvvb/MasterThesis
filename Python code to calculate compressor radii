@@ -1,0 +1,291 @@
+import math
+import numpy as np
+import matplotlib.pyplot as plt
+
+# ── Fixed parameters ──────────────────────────────────────────
+Pmani = 300000; dPinter = 1000; dPintake = 6000; hmax = 103
+M = 0.02897; g = 9.81; Rair = 287; R = 8.314; Tmin = 289
+P0 = 101325; Pamb = P0*math.exp(-g*M*hmax/(R*Tmin))
+Vd = 0.0035; n_eng = 6000; EFFv = 0.9; gamma = 1.4; cp = 1005
+PR = (Pmani + dPinter)/(Pamb - dPintake)
+Vdot3 = EFFv*Vd*n_eng/(60*2)
+T01 = 303; T02s = T01*PR**((gamma-1)/gamma); EFFc = 0.75
+T02 = T01 + (T02s - T01)/EFFc
+r_valve = 0.0365; v3 = Vdot3/(math.pi*r_valve**2)
+T03 = 323; T3 = T03 - 0.5*v3**2/cp
+P3 = Pmani*(T3/T03)**(gamma/(gamma-1))
+rho3 = P3/(Rair*T3)
+mdot = Vdot3*rho3
+mdotcomp = mdot/2
+
+# ── Design parameters ─────────────────────────────────────────
+I     = 0.65    # work coefficient
+Q2    = 0.20    # outlet flow coefficient
+N     = 150000  # rpm
+rr    = 0.3     # hub-to-tip ratio
+z     = 10      # number of blades
+omega = N*2*math.pi/60
+
+P01   = Pamb - dPintake
+T01c  = T01
+rho01 = P01/(Rair*T01c)
+dh    = cp*(T02 - T01)
+
+# ── Outlet velocity triangle (fixed) ─────────────────────────
+u2    = math.sqrt(dh/I)
+r2    = u2*60/(N*2*math.pi)
+Vu2   = I*u2
+Vm2   = Q2*u2
+beta2 = math.atan((u2 - Vu2)/Vm2)
+w2    = Vm2/math.cos(beta2)
+
+# Outlet static conditions
+T02_total = T01c + dh/cp
+T2        = T02_total - 0.5*Vm2**2/cp
+P2        = (Pmani + dPinter)*((T2/T02_total)**(gamma/(gamma-1)))
+rho2      = P2/(Rair*T2)
+b2        = mdotcomp/(2*math.pi*r2*rho2*Vm2)
+a2        = math.sqrt(gamma*Rair*T2)
+Mw2       = w2/a2
+Qs        = 1 - 2/z
+beta2bl   = math.degrees(math.atan(((Vu2/u2) + Qs - 1)/Q2))
+alfa2     = math.degrees(math.atan(Vu2/Vm2))
+
+# ── Minimum physical r1tip ────────────────────────────────────
+Vx_crit = math.sqrt(gamma*Rair*T01c*(2/(gamma+1)))
+A1_crit = mdotcomp/(rho01*Vx_crit)
+r1_crit = math.sqrt(A1_crit/(math.pi*(1-rr**2)))
+
+# ── Iterative solution for r1_tip ─────────────────────────────
+max_iter = 100
+tol      = 1e-8
+
+# Storage for convergence plots
+rho1_hist  = []
+Vx_hist    = []
+r1_hist    = []
+W_hist     = []
+T1_hist    = []
+Mw1_hist   = []
+DH_hist    = []
+error_hist = []
+
+rho1 = rho01  # initial guess
+
+print("="*75)
+print("ITERATIVE INLET DESIGN WITH de HALLER CHECK")
+print("="*75)
+print(f"{'Iter':>5} {'rho1':>10} {'Vx':>8} {'r1tip':>8} {'wc1':>8} "
+      f"{'T1':>8} {'Mw1':>7} {'DH':>7} {'error':>12}")
+print("-"*75)
+
+converged = False
+for i in range(max_iter):
+    # Vx from combined continuity + velocity triangle
+    Vx = ((omega**2 * mdotcomp) /
+          (math.pi*(1-rr**2)*rho1*(math.tan(math.radians(
+           math.degrees(math.atan(omega*((mdotcomp/
+           (rho1*math.pi*(1-rr**2)*Vx_crit**2))**(0.5))/Vx_crit)))))**2
+          ))**(1/3) if False else \
+         ((omega**2 * mdotcomp) /
+          (math.pi*(1-rr**2)*rho1*(omega/Vx_crit)**2))**(1/3)
+
+
+    beta1_opt = 60.0  # degrees, Casey & Robinson optimum
+    Vx = ((omega**2 * mdotcomp) /
+          (math.pi*(1-rr**2)*rho1*
+           (math.tan(math.radians(beta1_opt)))**2))**(1/3)
+
+    # r1tip from continuity
+    A1    = mdotcomp/(rho1*Vx)
+    r1tip = math.sqrt(A1/(math.pi*(1-rr**2)))
+    r1hub = rr*r1tip
+
+    # blade speed and relative velocity
+    U1  = omega*r1tip
+    wc1 = math.sqrt(Vx**2 + U1**2)
+
+    # static temperature
+    T1 = T01c - Vx**2/(2*cp)
+    if T1 <= 0:
+        print("ERROR: T1 negative — reduce N or increase rr")
+        break
+
+    # update density
+    P1       = P01*(T1/T01c)**(gamma/(gamma-1))
+    rho1_new = P1/(Rair*T1)
+
+    # Mach numbers
+    a1  = math.sqrt(gamma*Rair*T1)
+    Mw1 = wc1/a1
+
+    # de Haller number
+    DH = w2/wc1
+
+    # convergence error
+    error = abs(rho1_new - rho1)/rho1
+
+    # store history
+    rho1_hist.append(rho1)
+    Vx_hist.append(Vx)
+    r1_hist.append(r1tip*1000)
+    W_hist.append(wc1)
+    T1_hist.append(T1)
+    Mw1_hist.append(Mw1)
+    DH_hist.append(DH)
+    error_hist.append(error)
+
+    print(f"{i+1:>5} {rho1:>10.6f} {Vx:>8.3f} {r1tip*1000:>8.4f} "
+          f"{wc1:>8.3f} {T1:>8.3f} {Mw1:>7.4f} {DH:>7.4f} {error:>12.2e}")
+
+    if error < tol:
+        rho1 = rho1_new
+        converged = True
+        n_iter = i+1
+        break
+
+    rho1 = rho1_new
+
+if not converged:
+    print(f"\nWARNING: Did not converge after {max_iter} iterations")
+    n_iter = max_iter
+
+# ── Final results ─────────────────────────────────────────────
+beta1_actual = math.degrees(math.atan(U1/Vx))
+
+print()
+print("="*55)
+print("FINAL CONVERGED VALUES")
+print("="*55)
+print(f"  Iterations needed        : {n_iter}")
+print()
+print("  ── INLET ──────────────────────────────")
+print(f"  r1_tip                   : {r1tip*1000:.4f} mm")
+print(f"  r1_hub                   : {r1hub*1000:.4f} mm")
+print(f"  Axial velocity Vx        : {Vx:.4f} m/s")
+print(f"  Blade tip speed U1       : {U1:.4f} m/s")
+print(f"  Relative velocity wc1    : {wc1:.4f} m/s")
+print(f"  Static temperature T1    : {T1:.4f} K")
+print(f"  Static density rho1      : {rho1:.6f} kg/m³")
+print(f"  Speed of sound a1        : {a1:.4f} m/s")
+print(f"  Inlet blade angle beta1  : {beta1_actual:.2f} °")
+print(f"  Inlet rel. Mach Mw1      : {Mw1:.4f}")
+print()
+print("  ── OUTLET ─────────────────────────────")
+print(f"  r2                       : {r2*1000:.4f} mm")
+print(f"  Blade tip speed u2       : {u2:.4f} m/s")
+print(f"  Meridional vel Vm2       : {Vm2:.4f} m/s")
+print(f"  Swirl vel Vu2            : {Vu2:.4f} m/s")
+print(f"  Relative velocity w2     : {w2:.4f} m/s")
+print(f"  Relative flow angle β2   : {math.degrees(beta2):.2f} °")
+print(f"  Blade angle β2bl         : {beta2bl:.2f} °")
+print(f"  Absolute angle α2        : {alfa2:.2f} °")
+print(f"  Static temperature T2    : {T2:.4f} K")
+print(f"  Outlet Mach number Mw2   : {Mw2:.4f}")
+print(f"  Blade height b2          : {b2*1000:.4f} mm")
+print(f"  b2/D2 ratio              : {b2/(2*r2):.4f}")
+print()
+print("  ── CHECKS ─────────────────────────────")
+print(f"  de Haller DH = w2/wc1   : {DH:.4f}")
+print(f"  D1c/D2 ratio             : {r1tip/r2:.4f}")
+print(f"  r1tip/r2 (trim)          : {r1tip/r2:.4f}")
+print()
+
+# Limit checks with clear pass/fail
+checks = [
+    ("Mw1 <= 1.3",          Mw1 <= 1.3,          f"Mw1 = {Mw1:.3f}"),
+    ("Mw2 <= 0.9",          Mw2 <= 0.9,           f"Mw2 = {Mw2:.3f}"),
+    ("DH in [0.5, 0.7]",    0.5 <= DH <= 0.7,     f"DH  = {DH:.3f}"),
+    ("beta2bl in [-55,-25]", -55<=beta2bl<=-25,    f"β2bl= {beta2bl:.1f}°"),
+    ("D1c/D2 <= 0.73",      r1tip/r2 <= 0.73,     f"D1c/D2 = {r1tip/r2:.3f}"),
+    ("b2/D2 > 0.02",        b2/(2*r2) > 0.02,     f"b2/D2 = {b2/(2*r2):.4f}"),
+]
+for name, passed, value in checks:
+    mark = "✓" if passed else "✗"
+    print(f"  {mark} {name:<25} {value}")
+
+# ── Convergence plots ─────────────────────────────────────────
+iters = np.arange(1, len(rho1_hist)+1)
+
+fig, axs = plt.subplots(3, 3, figsize=(15, 13))
+fig.suptitle(f'Convergence of Iterative Inlet Design with de Haller Check'
+             f'\n(converged in {n_iter} iterations)', fontsize=13)
+
+# 1: convergence error
+axs[0,0].semilogy(iters, error_hist, 'r-o', markersize=5, linewidth=1.5)
+axs[0,0].axhline(y=tol, color='k', linestyle='--', label=f'tol={tol:.0e}')
+axs[0,0].set_xlabel('Iteration'); axs[0,0].set_ylabel('|Δρ/ρ|')
+axs[0,0].set_title('Convergence Error (log)'); axs[0,0].legend(); axs[0,0].grid(True)
+
+# 2: density
+axs[0,1].plot(iters, rho1_hist, 'b-o', markersize=5, linewidth=1.5)
+axs[0,1].axhline(y=rho1, color='k', linestyle='--', label=f'Final={rho1:.5f}')
+axs[0,1].set_xlabel('Iteration'); axs[0,1].set_ylabel('ρ₁ (kg/m³)')
+axs[0,1].set_title('Static Density ρ₁'); axs[0,1].legend(); axs[0,1].grid(True)
+
+# 3: Vx
+axs[0,2].plot(iters, Vx_hist, 'g-o', markersize=5, linewidth=1.5)
+axs[0,2].axhline(y=Vx, color='k', linestyle='--', label=f'Final={Vx:.3f} m/s')
+axs[0,2].set_xlabel('Iteration'); axs[0,2].set_ylabel('Vx (m/s)')
+axs[0,2].set_title('Axial Velocity Vx'); axs[0,2].legend(); axs[0,2].grid(True)
+
+# 4: r1tip
+axs[1,0].plot(iters, r1_hist, 'm-o', markersize=5, linewidth=1.5)
+axs[1,0].axhline(y=r1tip*1000, color='k', linestyle='--',
+                  label=f'Final={r1tip*1000:.3f} mm')
+axs[1,0].set_xlabel('Iteration'); axs[1,0].set_ylabel('r1_tip (mm)')
+axs[1,0].set_title('Inlet Tip Radius r1_tip'); axs[1,0].legend(); axs[1,0].grid(True)
+
+# 5: T1
+axs[1,1].plot(iters, T1_hist, 'orange', marker='o', markersize=5, linewidth=1.5)
+axs[1,1].axhline(y=T1, color='k', linestyle='--', label=f'Final={T1:.3f} K')
+axs[1,1].set_xlabel('Iteration'); axs[1,1].set_ylabel('T1 (K)')
+axs[1,1].set_title('Static Temperature T1'); axs[1,1].legend(); axs[1,1].grid(True)
+
+# 6: Mw1
+axs[1,2].plot(iters, Mw1_hist, 'c-o', markersize=5, linewidth=1.5)
+axs[1,2].axhline(y=Mw1, color='k', linestyle='--', label=f'Final={Mw1:.4f}')
+axs[1,2].axhline(y=1.3, color='r', linestyle=':', linewidth=2, label='Limit 1.3')
+axs[1,2].axhline(y=1.0, color='orange', linestyle=':', linewidth=1.5, label='Sonic')
+axs[1,2].set_xlabel('Iteration'); axs[1,2].set_ylabel('Mw1 (-)')
+axs[1,2].set_title('Inlet Relative Mach Number Mw1')
+axs[1,2].legend(); axs[1,2].grid(True)
+
+# 7: DH convergence
+axs[2,0].plot(iters, DH_hist, 'b-o', markersize=5, linewidth=1.5)
+axs[2,0].axhline(y=DH,  color='k',      linestyle='--', label=f'Final={DH:.4f}')
+axs[2,0].axhline(y=0.7, color='r',      linestyle=':',  linewidth=2, label='Upper 0.7')
+axs[2,0].axhline(y=0.5, color='r',      linestyle='-',  linewidth=2, label='Lower 0.5')
+axs[2,0].fill_between(iters, 0.5, 0.7,  alpha=0.1, color='green', label='OK zone')
+axs[2,0].set_xlabel('Iteration'); axs[2,0].set_ylabel('DH = w2/wc1')
+axs[2,0].set_title('de Haller Number Convergence')
+axs[2,0].legend(); axs[2,0].grid(True)
+
+# 8: wc1 and w2 side by side
+axs[2,1].plot(iters, W_hist,              'b-o', markersize=5, linewidth=1.5, label='wc1 (inlet)')
+axs[2,1].axhline(y=w2, color='r',         linestyle='--', linewidth=2,        label=f'w2={w2:.2f} m/s (outlet, fixed)')
+axs[2,1].axhline(y=wc1, color='k',        linestyle=':',  linewidth=1.5,      label=f'wc1 final={wc1:.2f}')
+axs[2,1].set_xlabel('Iteration'); axs[2,1].set_ylabel('Velocity (m/s)')
+axs[2,1].set_title('Relative Velocities wc1 and w2')
+axs[2,1].legend(); axs[2,1].grid(True)
+
+# 9: final summary bar chart of all checks
+check_names  = ['Mw1\n≤1.3', 'Mw2\n≤0.9', 'DH\n0.5-0.7',
+                'β2bl\n-55:-25', 'D1c/D2\n≤0.73', 'b2/D2\n>0.02']
+check_values = [Mw1, Mw2, DH, abs(beta2bl), r1tip/r2, b2/(2*r2)]
+check_limits = [1.3,  0.9, 0.6,  40,           0.73,     0.02]
+check_pass   = [c[1] for c in checks]
+bar_colors   = ['#2ecc71' if p else '#e74c3c' for p in check_pass]
+
+bars = axs[2,2].bar(check_names, check_values, color=bar_colors, edgecolor='k', linewidth=0.8)
+for idx, (val, lim) in enumerate(zip(check_values, check_limits)):
+    axs[2,2].text(idx, val + 0.01*max(check_values), f'{val:.3f}',
+                  ha='center', va='bottom', fontsize=8)
+axs[2,2].set_ylabel('Value'); axs[2,2].set_title('Design Checks Summary\n(green=pass, red=fail)')
+axs[2,2].grid(True, axis='y')
+from matplotlib.patches import Patch
+axs[2,2].legend(handles=[Patch(color='#2ecc71', label='Pass'),
+                           Patch(color='#e74c3c', label='Fail')], fontsize=9)
+
+plt.tight_layout()
+plt.show()
