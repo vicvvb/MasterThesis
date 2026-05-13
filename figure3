@@ -1,0 +1,42 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 1. Setup Parameters
+T1 = 300  # Initial Temperature in Kelvin
+pressure_ratios = np.linspace(0.01, 10, 500)  # Pressure ratio P2/P1
+
+# Specific heat ratios (gamma)
+gamma_diatomic = 1.4    # Typical for Air/Hydrogen
+gamma_triatomic = 1.33  # Typical for Water Vapor/CO2
+
+# 2. Calculate Adiabatic Temperatures
+T2_diatomic = T1 * (pressure_ratios)**((gamma_diatomic - 1) / gamma_diatomic)
+T2_triatomic = T1 * (pressure_ratios)**((gamma_triatomic - 1) / gamma_triatomic)
+
+# 3. Create the Plot
+plt.figure(figsize=(8, 6), dpi=100)
+
+# Plot curves
+plt.plot(pressure_ratios, T2_diatomic, label=f'Diatomic ($\gamma = {gamma_diatomic}$)', 
+         color='#1f77b4', linewidth=2)
+plt.plot(pressure_ratios, T2_triatomic, label=f'Triatomic ($\gamma = {gamma_triatomic}$)', 
+         color='#d62728', linestyle='--', linewidth=2)
+
+# Mark the Initial State (1, 300K)
+plt.plot(1, T1, 'ko', markersize=6)
+plt.text(1.2, 320, f'Initial State (1, {T1}K)', fontsize=9)
+
+# 4. Formatting to match your image
+plt.title('Adiabatic Temperature vs. Pressure Ratio', fontsize=12)
+plt.xlabel('Pressure Ratio ($p_2/p_1$)', fontsize=11)
+plt.ylabel('Temperature $T_2$ (K)', fontsize=11)
+
+plt.xlim(0, 10)
+plt.ylim(0, 700)
+
+plt.grid(True, linestyle=':', alpha=0.6)
+plt.legend(loc='upper left', frameon=True)
+
+# Tight layout and show
+plt.tight_layout()
+plt.show()
